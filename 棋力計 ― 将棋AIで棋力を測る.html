@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>棋力計 ― 将棋AIで棋力を測る</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%98%97%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --paper:#e3e8e5; --card:#f3f5f3; --ink:#1d2b45; --ink-soft:#4b5974; --line-ui:#b9c3c4;
+  --shu:#c4352b; --moss:#2f6b57; --btn:#1d2b45; --btn-text:#f3f5f3;
+  --kaya:#e3b966; --kaya-line:#6b4a1e; --koma-text:#24190d;
+  --serif:"Yu Mincho","YuMincho","Hiragino Mincho ProN","Noto Serif JP","BIZ UDPMincho","MS PMincho",serif;
+  --sans:"Hiragino Sans","Yu Gothic","Noto Sans JP","Meiryo",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#141b2a; --card:#1c2538; --ink:#e4e9f1; --ink-soft:#a3aec3; --line-ui:#33415c;
+    --shu:#e2574c; --moss:#5fb398; --btn:#e4e9f1; --btn-text:#141b2a;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#141b2a; --card:#1c2538; --ink:#e4e9f1; --ink-soft:#a3aec3; --line-ui:#33415c;
+  --shu:#e2574c; --moss:#5fb398; --btn:#e4e9f1; --btn-text:#141b2a;
+}
+*{box-sizing:border-box}
+html{height:100%}
+body{margin:0;min-height:100%;background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.7;-webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible{outline:3px solid var(--moss);outline-offset:2px}
+[hidden]{display:none!important}
+.top{padding:12px 16px;max-width:620px;margin:0 auto}
+.brand{background:none;border:0;padding:0;font-family:var(--serif);font-weight:800;font-size:1.25rem;letter-spacing:.12em}
+main{max-width:620px;margin:0 auto;padding:4px 16px 56px}
+h1,h2,h3{font-family:var(--serif);line-height:1.35;margin:0}
+h1{font-size:clamp(2.6rem,12vw,3.8rem);font-weight:800;letter-spacing:.1em}
+h2{font-size:1.5rem;font-weight:800}
+p{margin:.6em 0}
+.lead{color:var(--ink-soft);max-width:34em}
+.note{font-size:.82rem;color:var(--ink-soft)}
+.btn{display:block;width:100%;padding:.85em 1em;border-radius:6px;border:2px solid var(--btn);background:var(--btn);color:var(--btn-text);font-weight:700;font-size:1rem;text-align:center}
+.btn.alt{background:transparent;color:var(--ink)}
+.btn.small{display:inline-block;width:auto;padding:.45em 1em;font-size:.9rem}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.stack{display:grid;gap:10px;margin-top:20px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row .btn{flex:1;min-width:8em}
+
+/* rank meter */
+.meter{margin:28px 0 8px;padding-top:44px}
+.track{position:relative;height:14px;background:var(--line-ui);border-radius:7px}
+.track .tick{position:absolute;top:-5px;width:1px;height:24px;background:var(--ink-soft);opacity:.55}
+.track .ai{position:absolute;top:18px;width:6px;height:6px;margin-left:-3px;border-radius:50%;background:var(--ink-soft)}
+.band{position:absolute;top:0;height:14px;background:var(--moss);opacity:.85;border-radius:7px}
+.pin{position:absolute;top:-40px;transform:translateX(-50%);text-align:center;font-family:var(--serif);font-weight:800;white-space:nowrap}
+.pin b{display:inline-block;background:var(--shu);color:#fff;padding:.1em .6em;border-radius:3px;font-size:1.05rem}
+.pin::after{content:"";display:block;width:2px;height:22px;background:var(--shu);margin:0 auto}
+.pin.none b{background:transparent;color:var(--ink-soft);border:1.5px dashed var(--ink-soft)}
+.scale{position:relative;height:1.6em;margin-top:22px;font-size:.78rem;color:var(--ink-soft)}
+.scale span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.est{font-family:var(--serif);font-size:1.15rem;margin:.2em 0}
+
+/* choices */
+.choices{display:grid;gap:8px;margin-top:14px}
+.choice{display:block;width:100%;text-align:left;padding:.75em 1em;border:2px solid var(--line-ui);border-radius:6px;background:var(--card)}
+.choice[aria-pressed="true"]{border-color:var(--moss);box-shadow:inset 5px 0 0 var(--moss)}
+.choice small{display:block;color:var(--ink-soft)}
+.field{margin-top:22px}
+.field>h3{font-size:1.05rem;margin-bottom:6px}
+.seg{display:flex;gap:8px}
+.seg .choice{text-align:center}
+
+/* game */
+.gwrap{display:grid;justify-items:center;gap:8px;--bw:min(86vw,500px);--cell:calc(var(--bw)/9)}
+.pbar{width:calc(var(--bw) + 1.5em);display:flex;justify-content:space-between;align-items:baseline;font-size:.9rem;gap:8px}
+.pbar b{font-family:var(--serif);font-size:1.05rem}
+.think{color:var(--moss);font-weight:700}
+.think::after{content:"";display:inline-block;width:.5em;height:.5em;margin-left:.4em;border-radius:50%;background:var(--moss);animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.2}}
+.hand{width:calc(var(--bw) + 1.5em);min-height:calc(var(--cell)*0.95);display:flex;gap:4px;flex-wrap:wrap;align-items:center;padding:4px 6px;border-radius:6px;background:var(--card);border:1px solid var(--line-ui)}
+.hand .empty{font-size:.78rem;color:var(--ink-soft)}
+.hp{position:relative;border:0;background:none;padding:0;width:calc(var(--cell)*.82);height:calc(var(--cell)*.9)}
+.hp .pc{position:absolute;inset:0}
+.hp .cnt{position:absolute;right:-2px;bottom:-2px;background:var(--ink);color:var(--paper);border-radius:9px;font-size:.7rem;line-height:1;padding:3px 5px;font-weight:700;z-index:2}
+.hp.sel .pc{filter:drop-shadow(0 0 0 var(--moss)) drop-shadow(0 0 3px var(--moss)) drop-shadow(0 0 3px var(--moss))}
+.hp.opp{transform:rotate(180deg);cursor:default}
+.bd{display:grid;grid-template-columns:var(--bw) 1.5em;grid-template-rows:1.4em var(--bw)}
+.files{grid-column:1;display:grid;grid-template-columns:repeat(9,1fr);text-align:center;font-size:.8rem;color:var(--ink-soft);align-items:end}
+.ranks{grid-column:2;grid-row:2;display:grid;grid-template-rows:repeat(9,1fr);font-size:.8rem;color:var(--ink-soft);align-items:center;padding-left:.35em}
+.board{grid-column:1;grid-row:2;display:grid;grid-template-columns:repeat(9,1fr);gap:1px;background:var(--kaya-line);border:2px solid var(--kaya-line);box-shadow:0 2px 0 rgba(0,0,0,.18)}
+.cell{position:relative;aspect-ratio:1;background:var(--kaya);border:0;padding:0;display:grid;place-items:center;min-width:0}
+.cell.star::after{content:"";position:absolute;right:-3px;bottom:-3px;width:6px;height:6px;border-radius:50%;background:var(--kaya-line);z-index:3;pointer-events:none}
+.cell.last{box-shadow:inset 0 0 0 3px rgba(196,53,43,.75)}
+.cell.sel{background:#9fc7a8}
+.cell.chk{background:#e7897d}
+.cell.dest::before{content:"";position:absolute;width:26%;height:26%;border-radius:50%;background:rgba(47,107,87,.75);z-index:3;pointer-events:none}
+.cell.dest.cap::before{width:86%;height:86%;background:none;border:3px solid rgba(47,107,87,.85)}
+.pc{display:grid;place-items:center;width:84%;height:90%;font-family:var(--serif);font-weight:900;color:var(--koma-text);font-size:calc(var(--cell)*.5);line-height:1;
+  background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 110' preserveAspectRatio='none'><path d='M50 3 L88 22 L97 106 L3 106 L12 22 Z' fill='%23f3d994' stroke='%238a5f22' stroke-width='3.5' stroke-linejoin='round'/></svg>") center/100% 100% no-repeat;
+  padding-top:8%}
+.pc.pro{color:var(--shu)}
+.pc.opp{transform:rotate(180deg)}
+.hp .pc{width:100%;height:100%;font-size:calc(var(--cell)*.44)}
+.status{width:calc(var(--bw) + 1.5em);min-height:3.2em}
+.status .main{font-weight:700}
+.status .main.warn{color:var(--shu)}
+.status .sub{font-size:.85rem;color:var(--ink-soft)}
+.ctl{width:calc(var(--bw) + 1.5em);display:flex;gap:8px}
+.ctl .btn{flex:1}
+.rescard{width:calc(var(--bw) + 1.5em);background:var(--card);border:2px solid var(--shu);border-radius:8px;padding:14px 16px}
+.rescard h2{margin-bottom:4px}
+.rescard.win{border-color:var(--moss)}
+
+/* result view */
+.cert{display:flex;gap:18px;align-items:center;margin:18px 0}
+.seal{flex:none;display:flex;flex-direction:column;align-items:center;font-family:var(--serif);font-weight:800;font-size:clamp(1.8rem,9vw,2.6rem);color:var(--shu);border:4px solid var(--shu);padding:.35em .3em;border-radius:5px;transform:rotate(-3deg);line-height:1.2}
+.cert .txt p{margin:.15em 0}
+.cert .big{font-family:var(--serif);font-size:1.3rem;font-weight:700}
+.hist{display:flex;align-items:flex-end;gap:1px;height:90px;margin-top:20px}
+.hist i{flex:1;background:var(--line-ui);border-radius:2px 2px 0 0;min-height:1px}
+.hist i.in{background:var(--moss)}
+.hist i.mid{background:var(--shu)}
+table{border-collapse:collapse;width:100%;font-size:.9rem;margin-top:8px}
+td,th{padding:.4em .5em;border-bottom:1px solid var(--line-ui);text-align:left}
+.w{color:var(--moss);font-weight:700}.l{color:var(--shu);font-weight:700}
+
+#modal{position:fixed;inset:0;background:rgba(10,16,30,.55);display:grid;place-items:center;padding:20px;z-index:50}
+.dlg{background:var(--card);border-radius:10px;padding:20px;max-width:360px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.dlg p{margin:0 0 14px;font-weight:700}
+@media (prefers-reduced-motion:reduce){.think::after{animation:none}}
+
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+</style>
+</head>
+<body>
+<header class="top"><button class="brand" id="brand" aria-label="ホームへ">棋力計</button></header>
+<main>
+<section id="v-home"></section>
+<section id="v-measure" hidden></section>
+<section id="v-free" hidden></section>
+<section id="v-game" hidden></section>
+<section id="v-result" hidden></section>
+</main>
+<div id="modal" hidden></div>
+<script id="engine" type="text/plain">
+const Shogi = (function () {
+'use strict';
+const P=1,L=2,N=3,S=4,G=5,B=6,R=7,K=8;
+const PROMO_OF=[0,9,10,11,12,0,13,14,0,0,0,0,0,0,0];
+const UNPROMO=[0,1,2,3,4,5,6,7,8,1,2,3,4,6,7];
+const VAL=[0,100,300,320,450,500,800,1000,0,450,480,480,500,1050,1300];
+const HV=[0,115,330,350,490,540,900,1100,0];
+const MATE=30000, INF=32000;
+
+const ORTH=[[-1,0],[1,0],[0,-1],[0,1]], DIAG=[[-1,-1],[-1,1],[1,-1],[1,1]];
+const GOLD=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,0]];
+const STEPS=[], SLIDES=[];
+for (let t=0;t<15;t++){ STEPS.push([]); SLIDES.push([]); }
+STEPS[P]=[[-1,0]];
+STEPS[N]=[[-2,-1],[-2,1]];
+STEPS[S]=[[-1,-1],[-1,0],[-1,1],[1,-1],[1,1]];
+STEPS[G]=GOLD;
+STEPS[K]=ORTH.concat(DIAG);
+[9,10,11,12].forEach(t=>{STEPS[t]=GOLD;});
+SLIDES[L]=[[-1,0]]; SLIDES[B]=DIAG; SLIDES[R]=ORTH;
+STEPS[13]=ORTH; SLIDES[13]=DIAG;
+STEPS[14]=DIAG; SLIDES[14]=ORTH;
+
+const STEP_OK=new Uint8Array(15*9), SLIDE_OK=new Uint8Array(15*9);
+for (let t=1;t<15;t++){
+  STEPS[t].forEach(d=>{ if(Math.abs(d[0])<=1&&Math.abs(d[1])<=1) STEP_OK[t*9+(d[0]+1)*3+d[1]+1]=1; });
+  SLIDES[t].forEach(d=>{ SLIDE_OK[t*9+(d[0]+1)*3+d[1]+1]=1; });
+}
+const DR=[-1,1,0,0,-1,-1,1,1], DC=[0,0,-1,1,-1,1,-1,1];
+
+// evaluation tables
+const PSTV=[[],[]];
+for (let side=0;side<2;side++){
+  for (let t=0;t<15;t++){
+    const arr=new Int16Array(81);
+    for (let sq=0;sq<81;sq++){
+      const r=(sq/9)|0, c=sq-r*9;
+      const y = side===0 ? 8-r : r;
+      const center = 4-Math.max(Math.abs(r-4),Math.abs(c-4));
+      let bonus=0;
+      switch(t){
+        case P: bonus=Math.min(30,Math.max(0,y-2)*5); break;
+        case L: bonus=y; break;
+        case N: bonus=y*3+center*2; break;
+        case S: bonus=y*3+center*3; break;
+        case G: bonus=y+center*2; break;
+        case B: bonus=center*3; break;
+        case R: bonus=y*2; break;
+        case K: bonus=-y*10+((y<=1&&(c===1||c===2||c===6||c===7))?10:0); break;
+        case 9: case 10: case 11: case 12: bonus=y*2; break;
+        case 13: case 14: bonus=center*2; break;
+      }
+      arr[sq]=VAL[t]+bonus;
+    }
+    PSTV[side].push(arr);
+  }
+}
+
+function newPos(){
+  return { b:new Int8Array(81), h:new Int8Array(16), side:0, kp:[-1,-1], score:0, sp:0,
+    us:{score:new Int32Array(256),cap:new Int8Array(256),k0:new Int16Array(256),k1:new Int16Array(256)} };
+}
+function recompute(pos){
+  pos.kp=[-1,-1]; let s=0; const b=pos.b;
+  for (let sq=0;sq<81;sq++){
+    const p=b[sq]; if(!p) continue;
+    const t=Math.abs(p), side=p>0?0:1;
+    s+=(side===0?1:-1)*PSTV[side][t][sq];
+    if(t===K) pos.kp[side]=sq;
+  }
+  for (let side=0;side<2;side++) for (let t=1;t<=7;t++) s+=(side?-1:1)*HV[t]*pos.h[side*8+t];
+  pos.score=s; pos.sp=0;
+}
+function initialPos(){
+  const pos=newPos(), b=pos.b;
+  const back=[L,N,S,G,K,G,S,N,L];
+  for (let c=0;c<9;c++){
+    b[c]=-back[c]; b[72+c]=back[c];
+    b[18+c]=-P; b[54+c]=P;
+  }
+  b[9+1]=-R; b[9+7]=-B; b[63+1]=B; b[63+7]=R;
+  recompute(pos); return pos;
+}
+function clonePos(pos){
+  const q=newPos(); q.b.set(pos.b); q.h.set(pos.h); q.side=pos.side; q.kp=[pos.kp[0],pos.kp[1]]; q.score=pos.score; return q;
+}
+function toJSON(pos){ return {b:Array.from(pos.b),h:Array.from(pos.h),side:pos.side}; }
+function fromJSON(o){ const p=newPos(); p.b.set(o.b); p.h.set(o.h); p.side=o.side; recompute(p); return p; }
+function key(pos){ return pos.b.join(',')+'|'+pos.h.join(',')+'|'+pos.side; }
+
+function inAttack(b, sq, by){
+  const sign=by===0?1:-1;
+  const r=(sq/9)|0, c=sq-r*9;
+  for (let k=0;k<8;k++){
+    const dr=DR[k], dc=DC[k];
+    let rr=r+dr, cc=c+dc, first=true;
+    const idx=((-dr*sign)+1)*3+(-dc+1);
+    while (rr>=0&&rr<9&&cc>=0&&cc<9){
+      const p=b[rr*9+cc];
+      if (p!==0){
+        if (p*sign>0){
+          const t=p*sign;
+          if (SLIDE_OK[t*9+idx]) return true;
+          if (first && STEP_OK[t*9+idx]) return true;
+        }
+        break;
+      }
+      first=false; rr+=dr; cc+=dc;
+    }
+  }
+  const kr=r+2*sign;
+  if (kr>=0&&kr<9){
+    if (c>0 && b[kr*9+c-1]*sign===N) return true;
+    if (c<8 && b[kr*9+c+1]*sign===N) return true;
+  }
+  return false;
+}
+function inCheck(pos, side){ return inAttack(pos.b,pos.kp[side],1-side); }
+
+function make(pos,m){
+  const sp=pos.sp++, us=pos.us;
+  us.score[sp]=pos.score; us.k0[sp]=pos.kp[0]; us.k1[sp]=pos.kp[1];
+  const from=m&127, to=(m>>7)&127, pr=(m>>14)&1, side=pos.side, sign=side?-1:1, b=pos.b, h=pos.h;
+  let sc=pos.score, cap=0;
+  if (from>80){
+    const t=from-80; b[to]=sign*t; h[side*8+t]--;
+    sc+=sign*(PSTV[side][t][to]-HV[t]);
+  } else {
+    const t=b[from]*sign;
+    const nt=pr?PROMO_OF[t]:t;
+    cap=b[to];
+    sc+=sign*(PSTV[side][nt][to]-PSTV[side][t][from]);
+    if (cap!==0){
+      const ct=cap*(-sign), ub=UNPROMO[ct];
+      sc+=sign*PSTV[1-side][ct][to];
+      h[side*8+ub]++; sc+=sign*HV[ub];
+    }
+    b[from]=0; b[to]=sign*nt;
+    if (t===K) pos.kp[side]=to;
+  }
+  us.cap[sp]=cap; pos.score=sc; pos.side=1-side;
+}
+function unmake(pos,m){
+  const sp=--pos.sp, us=pos.us;
+  const from=m&127, to=(m>>7)&127, pr=(m>>14)&1;
+  const side=1-pos.side; pos.side=side;
+  const sign=side?-1:1, b=pos.b, h=pos.h, cap=us.cap[sp];
+  if (from>80){
+    const t=from-80; b[to]=0; h[side*8+t]++;
+  } else {
+    const nt=b[to]*sign, t=pr?UNPROMO[nt]:nt;
+    b[from]=sign*t; b[to]=cap;
+    if (cap!==0){ h[side*8+UNPROMO[cap*(-sign)]]--; }
+  }
+  pos.score=us.score[sp]; pos.kp[0]=us.k0[sp]; pos.kp[1]=us.k1[sp];
+}
+
+function addMv(buf,n,from,to,t,r0,r1,side,full){
+  const pt=PROMO_OF[t];
+  if (pt!==0){
+    const z0=side===0?r0<=2:r0>=6, z1=side===0?r1<=2:r1>=6;
+    if (z0||z1){
+      const rel=side===0?r1:8-r1;
+      const forced=((t===P||t===L)&&rel===0)||(t===N&&rel<=1);
+      buf[n++]=from|(to<<7)|(1<<14);
+      if (!forced && (full||!(t===P||t===B||t===R))) buf[n++]=from|(to<<7);
+      return n;
+    }
+  }
+  buf[n++]=from|(to<<7);
+  return n;
+}
+// mode 0: search, 1: full (rules), 2: captures only
+function gen(pos,buf,mode){
+  const b=pos.b, side=pos.side, sign=side?-1:1;
+  const caps=mode===2, full=mode===1;
+  let n=0;
+  for (let sq=0;sq<81;sq++){
+    const p=b[sq]; if (p*sign<=0) continue;
+    const t=p*sign, r=(sq/9)|0, c=sq-r*9;
+    const st=STEPS[t];
+    for (let i=0;i<st.length;i++){
+      const rr=r+st[i][0]*sign, cc=c+st[i][1];
+      if (rr<0||rr>8||cc<0||cc>8) continue;
+      const to=rr*9+cc, q=b[to];
+      if (q*sign>0) continue;
+      if (caps&&q===0) continue;
+      n=addMv(buf,n,sq,to,t,r,rr,side,full);
+    }
+    const sl=SLIDES[t];
+    for (let i=0;i<sl.length;i++){
+      const dr=sl[i][0]*sign, dc=sl[i][1];
+      let rr=r+dr, cc=c+dc;
+      while (rr>=0&&rr<9&&cc>=0&&cc<9){
+        const to=rr*9+cc, q=b[to];
+        if (q*sign>0) break;
+        if (q===0){ if(!caps) n=addMv(buf,n,sq,to,t,r,rr,side,full); }
+        else { n=addMv(buf,n,sq,to,t,r,rr,side,full); break; }
+        rr+=dr; cc+=dc;
+      }
+    }
+  }
+  if (!caps){
+    const hb=side*8, h=pos.h;
+    let pawnFiles=0;
+    for (let sq=0;sq<81;sq++) if (b[sq]===sign*P) pawnFiles|=1<<(sq%9);
+    for (let t=1;t<=7;t++){
+      if (h[hb+t]===0) continue;
+      for (let to=0;to<81;to++){
+        if (b[to]!==0) continue;
+        const r=(to/9)|0, rel=side===0?r:8-r;
+        if ((t===P||t===L)&&rel===0) continue;
+        if (t===N&&rel<=1) continue;
+        if (t===P&&((pawnFiles>>(to%9))&1)) continue;
+        buf[n++]=(80+t)|(to<<7);
+      }
+    }
+  }
+  return n;
+}
+
+const HB=new Int32Array(700);
+function hasLegal(pos){
+  const side=pos.side, n=gen(pos,HB,1);
+  for (let i=0;i<n;i++){
+    const m=HB[i];
+    make(pos,m);
+    const bad=inAttack(pos.b,pos.kp[side],1-side);
+    unmake(pos,m);
+    if(!bad) return true;
+  }
+  return false;
+}
+function legalMoves(pos){
+  const buf=new Int32Array(700), n=gen(pos,buf,1), side=pos.side, out=[];
+  for (let i=0;i<n;i++){
+    const m=buf[i];
+    make(pos,m);
+    if (inAttack(pos.b,pos.kp[side],1-side)){ unmake(pos,m); continue; }
+    if ((m&127)===80+P && inAttack(pos.b,pos.kp[1-side],side) && !hasLegal(pos)){ unmake(pos,m); continue; }
+    unmake(pos,m);
+    out.push(m);
+  }
+  return out;
+}
+function apply(pos,m){ make(pos,m); pos.sp=0; }
+
+function evaluate(pos){
+  let s=pos.score; const b=pos.b;
+  for (let side=0;side<2;side++){
+    const kp=pos.kp[side]; if (kp<0) continue;
+    const sign=side?-1:1, kr=(kp/9)|0, kc=kp-kr*9;
+    let def=0, att=0;
+    for (let dr=-2;dr<=2;dr++){
+      const rr=kr+dr; if (rr<0||rr>8) continue;
+      for (let dc=-2;dc<=2;dc++){
+        const cc=kc+dc; if (cc<0||cc>8) continue;
+        const p=b[rr*9+cc]; if (p===0) continue;
+        const t=Math.abs(p);
+        if (p*sign>0){ if (t===G||t===S||(t>=9&&t<=12)) def++; }
+        else if (t!==K) att++;
+      }
+    }
+    s+=sign*(Math.min(def,4)*14-Math.min(att,5)*6);
+  }
+  return (pos.side===0?s:-s)+8;
+}
+
+// ---- search
+const BUF=[], SC=[];
+for (let i=0;i<64;i++){ BUF.push(new Int32Array(700)); SC.push(new Int32Array(700)); }
+const KIL1=new Int32Array(64), KIL2=new Int32Array(64), HIST=new Int32Array(2*7128);
+let nodes=0, deadline=Infinity, aborted=false, canAbort=false, useQ=true;
+
+function orderScores(pos,buf,sc,n,ply){
+  const b=pos.b, side=pos.side, sign=side?-1:1;
+  for (let i=0;i<n;i++){
+    const m=buf[i], from=m&127, to=(m>>7)&127, q=b[to];
+    let s=0;
+    if (q!==0){ s=20000+VAL[q*(-sign)]*8-(from>80?0:VAL[b[from]*sign]); }
+    else {
+      if (m===KIL1[ply]) s=9000; else if (m===KIL2[ply]) s=8500;
+      else s=HIST[side*7128+from*81+to];
+    }
+    if ((m>>14)&1) s+=6000;
+    sc[i]=s;
+  }
+}
+function pick(buf,sc,i,n){
+  let bi=i, bs=sc[i];
+  for (let j=i+1;j<n;j++) if (sc[j]>bs){ bs=sc[j]; bi=j; }
+  if (bi!==i){ const tm=buf[i]; buf[i]=buf[bi]; buf[bi]=tm; const ts=sc[i]; sc[i]=sc[bi]; sc[bi]=ts; }
+  return buf[i];
+}
+function qsearch(pos,alpha,beta,ply,qd){
+  const stand=evaluate(pos);
+  if (stand>=beta) return stand;
+  if (ply>=58||qd>=5) return stand;
+  if (stand>alpha) alpha=stand;
+  const buf=BUF[ply], sc=SC[ply], side=pos.side, b=pos.b;
+  const n=gen(pos,buf,2);
+  orderScores(pos,buf,sc,n,ply);
+  for (let i=0;i<n;i++){
+    const m=pick(buf,sc,i,n);
+    make(pos,m);
+    if (inAttack(b,pos.kp[side],1-side)){ unmake(pos,m); continue; }
+    const v=-qsearch(pos,-beta,-alpha,ply+1,qd+1);
+    unmake(pos,m);
+    if (v>=beta) return v;
+    if (v>alpha) alpha=v;
+  }
+  return alpha;
+}
+function negamax(pos,depth,alpha,beta,ply){
+  if ((++nodes&1023)===0 && canAbort && Date.now()>deadline) aborted=true;
+  if (aborted) return 0;
+  const side=pos.side, b=pos.b;
+  const chk=inAttack(b,pos.kp[side],1-side);
+  if (chk && ply<14) depth++;
+  if (depth<=0) return useQ?qsearch(pos,alpha,beta,ply,0):evaluate(pos);
+  if (ply>=58) return evaluate(pos);
+  const buf=BUF[ply], sc=SC[ply];
+  const n=gen(pos,buf,0);
+  orderScores(pos,buf,sc,n,ply);
+  let best=-INF, legal=0;
+  for (let i=0;i<n;i++){
+    const m=pick(buf,sc,i,n);
+    const quiet=b[(m>>7)&127]===0;
+    make(pos,m);
+    if (inAttack(b,pos.kp[side],1-side)){ unmake(pos,m); continue; }
+    legal++;
+    const v=-negamax(pos,depth-1,-beta,-alpha,ply+1);
+    unmake(pos,m);
+    if (aborted) return 0;
+    if (v>best){
+      best=v;
+      if (v>alpha){
+        alpha=v;
+        if (alpha>=beta){
+          if (quiet){
+            if (KIL1[ply]!==m){ KIL2[ply]=KIL1[ply]; KIL1[ply]=m; }
+            const hi=side*7128+(m&127)*81+((m>>7)&127);
+            HIST[hi]=Math.min(8000,HIST[hi]+depth*depth);
+          }
+          break;
+        }
+      }
+    }
+  }
+  if (legal===0) return -MATE+ply;
+  return best;
+}
+
+const LEVELS=[null,
+  {d:1,q:false,rand:0.70,noise:450,t:0},
+  {d:1,q:false,rand:0.40,noise:280,t:0},
+  {d:1,q:true, rand:0.20,noise:160,t:0},
+  {d:2,q:true, rand:0.12,noise:100,t:0},
+  {d:2,q:true, rand:0.04,noise:50, t:0},
+  {d:3,q:true, rand:0.02,noise:40, t:0},
+  {d:3,q:true, rand:0,   noise:15, t:0},
+  {d:5,q:true, rand:0,   noise:0,  t:2000},
+  {d:6,q:true, rand:0,   noise:0,  t:3000},
+  {d:8,q:true, rand:0,   noise:0,  t:4500}
+];
+
+function rootEval(pos,m,d){
+  // score of move m from mover's perspective
+  const side=pos.side;
+  make(pos,m);
+  let v;
+  if (inAttack(pos.b,pos.kp[1-side],side) && !hasLegal(pos)) v=MATE-1;
+  else if (d<=1) v=-(useQ?qsearch(pos,-INF,INF,1,0):evaluate(pos));
+  else v=-negamax(pos,d-1,-INF,INF,1);
+  unmake(pos,m);
+  return v;
+}
+
+function chooseMove(pos0,lv,overrideParams){
+  const prm=Object.assign({},LEVELS[lv],overrideParams||{});
+  const pos=clonePos(pos0);
+  useQ=prm.q; nodes=0; aborted=false; canAbort=false;
+  KIL1.fill(0); KIL2.fill(0); HIST.fill(0);
+  const moves=legalMoves(pos);
+  if (moves.length===0) return {move:0,none:true,depth:0,score:-MATE};
+  if (moves.length===1) return {move:moves[0],depth:0,score:0};
+  const t0=Date.now();
+  if (Math.random()<prm.rand){
+    const sc=moves.map(m=>({m,v:rootEval(pos,m,1)+Math.random()*30}));
+    sc.sort((a,b)=>b.v-a.v);
+    const k=Math.min(10,sc.length);
+    return {move:sc[Math.floor(Math.random()*k)].m,depth:1,score:0,random:true};
+  }
+  if (prm.noise>0){
+    let best=-Infinity, bm=moves[0];
+    for (const m of moves){
+      const v=rootEval(pos,m,prm.d)+(Math.random()*2-1)*prm.noise;
+      if (v>best){best=v;bm=m;}
+    }
+    return {move:bm,depth:prm.d,score:best,nodes,ms:Date.now()-t0};
+  }
+  // iterative deepening
+  const buf=BUF[0], sc=SC[0];
+  let order=moves.slice();
+  for (let i=order.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=order[i]; order[i]=order[j]; order[j]=t; }
+  { // initial ordering by heuristics
+    const n=order.length; for(let i=0;i<n;i++) buf[i]=order[i];
+    orderScores(pos,buf,sc,n,0);
+    const idx=[...Array(n).keys()].sort((a,b)=>sc[b]-sc[a]);
+    order=idx.map(i=>buf[i]);
+  }
+  let bestMove=order[0], bestScore=0, done=0;
+  deadline=Date.now()+prm.t;
+  for (let d=1;d<=prm.d;d++){
+    canAbort=d>1;
+    let alpha=-INF, best=-INF, bm=0;
+    for (let i=0;i<order.length;i++){
+      const m=order[i], side=pos.side;
+      make(pos,m);
+      let v;
+      if (inAttack(pos.b,pos.kp[1-side],side) && !hasLegal(pos)) v=MATE-1;
+      else v=-negamax(pos,d-1,-INF,-alpha,1);
+      unmake(pos,m);
+      if (aborted) break;
+      if (v>best){ best=v; bm=m; if (v>alpha) alpha=v; }
+    }
+    if (aborted) break;
+    bestMove=bm; bestScore=best; done=d;
+    order.splice(order.indexOf(bm),1); order.unshift(bm);
+    if (best>MATE-100) break;
+    if (Date.now()>deadline) break;
+  }
+  return {move:bestMove,depth:done,score:bestScore,nodes,ms:Date.now()-t0};
+}
+
+function perft(pos,d){
+  if (d===0) return 1;
+  const buf=new Int32Array(700), n=gen(pos,buf,1), side=pos.side; let c=0;
+  for (let i=0;i<n;i++){
+    const m=buf[i]; make(pos,m);
+    if (!inAttack(pos.b,pos.kp[side],1-side)) c+=perft(pos,d-1);
+    unmake(pos,m);
+  }
+  return c;
+}
+
+return { P,L,N,S,G,B,R,K, PROMO_OF, UNPROMO, LEVELS, MATE, initialPos, clonePos, toJSON, fromJSON, key,
+  legalMoves, hasLegal, apply, inCheck, chooseMove, evaluate, perft };
+})();
+
+</script>
+<script>
+(function(){
+'use strict';
+const engineSrc=document.getElementById('engine').textContent;
+const E=new Function(engineSrc+'\nreturn Shogi;')();
+const $=s=>document.querySelector(s);
+const LV_X=[0,5,10,15,18,21,23,25,27,29,30];
+const LV_NAME=['','25級','20級','15級','12級','9級','7級','5級','3級','1級','初段'];
+const GL=['','歩','香','桂','銀','金','角','飛','玉','と','杏','圭','全','馬','龍'];
+const NAME=['','歩','香','桂','銀','金','角','飛','玉','と','成香','成桂','成銀','馬','龍'];
+const FW='０１２３４５６７８９', RK='〇一二三四五六七八九';
+const KN=['','一','二','三','四','五','六','七','八','九'];
+const MAXX=33;
+
+/* ---------- AI worker ---------- */
+let worker=null, reqId=0; const pending=new Map();
+try{
+  const src=engineSrc+`
+self.onmessage=function(e){var d=e.data;var r=Shogi.chooseMove(Shogi.fromJSON(d.pos),d.level);r.id=d.id;self.postMessage(r);};`;
+  worker=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
+  worker.onmessage=e=>{const f=pending.get(e.data.id); if(f){pending.delete(e.data.id); f(e.data);}};
+  worker.onerror=()=>{ worker=null; const ps=[...pending.entries()]; pending.clear(); ps.forEach(([id,f])=>f(null)); };
+}catch(err){ worker=null; }
+function runAI(posJSON,level){
+  return new Promise(resolve=>{
+    const fallback=()=>setTimeout(()=>resolve(E.chooseMove(E.fromJSON(posJSON),level)),30);
+    if(!worker){ fallback(); return; }
+    const id=++reqId;
+    pending.set(id,r=>{ if(r===null) fallback(); else resolve(r); });
+    worker.postMessage({id,pos:posJSON,level});
+  });
+}
+
+/* ---------- rating (grid posterior) ---------- */
+const GRID=[]; for(let i=0;i<=MAXX*4;i++) GRID.push(i/4);
+const R={post:null,games:[]};
+function normalize(){ let s=0; R.post.forEach(v=>s+=v); R.post=R.post.map(v=>v/s); }
+function resetRating(mean,sd){ R.post=GRID.map(x=>Math.exp(-0.5*Math.pow((x-mean)/sd,2))); R.games=[]; normalize(); }
+function ensureRating(){ if(!R.post) resetRating(14,8); }
+function pWin(x,o){ return 1/(1+Math.pow(10,-(x-o)*0.3)); }
+function updateRating(o,res){
+  ensureRating();
+  R.post=R.post.map((v,i)=>{ const p=pWin(GRID[i],o); return v*(res===1?p:res===0?1-p:Math.sqrt(p*(1-p))); });
+  normalize();
+}
+function stats(){
+  if(!R.post) return null;
+  let mean=0,c=0,lo=null,hi=null,med=null;
+  R.post.forEach((v,i)=>{ mean+=v*GRID[i]; c+=v; if(lo===null&&c>=0.1) lo=GRID[i]; if(med===null&&c>=0.5) med=GRID[i]; if(hi===null&&c>=0.9) hi=GRID[i]; });
+  return {mean,lo,hi,med};
+}
+function rankName(x){ const r=Math.round(x); if(r<=0) return '30級'; if(r<=29) return (30-r)+'級'; return ['','初','二','三','四'][Math.min(r-29,4)]+'段'; }
+function kanjiNum(n){ if(n<10) return KN[n]; if(n===10) return '十'; if(n<20) return '十'+KN[n-10]; const t=Math.floor(n/10),o=n%10; return KN[t]+'十'+(o?KN[o]:''); }
+function sealName(x){ const r=Math.round(x); if(r<=0) return '三十級'; if(r<=29) return kanjiNum(30-r)+'級'; return ['','初','二','三','四'][Math.min(r-29,4)]+'段'; }
+function topped(x){ return x>=29.6; }
+function estLabel(st){ return topped(st.med)? '初段以上' : rankName(st.med); }
+function rangeLabel(st){ const a=topped(st.lo)?'初段以上':rankName(st.lo), b=topped(st.hi)?'初段以上':rankName(st.hi); return a===b?a:a+' 〜 '+b; }
+function nearestLevel(x){ let bi=1,bd=1e9; for(let i=1;i<=10;i++){ const d=Math.abs(LV_X[i]-x); if(d<bd){bd=d;bi=i;} } return bi; }
+
+/* ---------- meter ---------- */
+function meterHTML(st){
+  const pc=x=>(x/MAXX*100).toFixed(2)+'%';
+  let h='<div class="meter"><div class="track">';
+  for(let x=0;x<=MAXX;x+=5) h+=`<i class="tick" style="left:${pc(x)}"></i>`;
+  for(let i=1;i<=10;i++) h+=`<i class="ai" style="left:${pc(LV_X[i])}" title="AI Lv${i}（${LV_NAME[i]}）"></i>`;
+  if(st){
+    h+=`<div class="band" style="left:${pc(st.lo)};width:${((st.hi-st.lo)/MAXX*100+0.8).toFixed(2)}%"></div>`;
+    h+=`<div class="pin" style="left:${pc(st.med)}"><b>${estLabel(st)}</b></div>`;
+  } else h+=`<div class="pin none" style="left:50%"><b>未測定</b></div>`;
+  h+='</div><div class="scale">';
+  [[0,'30級'],[10,'20級'],[20,'10級'],[25,'5級'],[30,'初段']].forEach(([x,t])=>{ h+=`<span style="left:${pc(x)}">${t}</span>`; });
+  h+='</div></div>';
+  return h;
+}
+
+/* ---------- views ---------- */
+const views=['home','measure','free','game','result'];
+function show(v){ views.forEach(n=>{ $('#v-'+n).hidden=n!==v; }); window.scrollTo(0,0); }
+function renderHome(){
+  const st=stats(), n=R.games.length;
+  let h=`<h1>棋力計</h1><p class="lead">将棋AIと指して、あなたの棋力をおおよその級・段で表示します。測定後は、その強さに合わせたAIとすぐ対局できます。</p>`;
+  h+=meterHTML(n?st:null);
+  if(n){ h+=`<p class="est">現在の推定：<b>${estLabel(st)}</b>くらい（${rangeLabel(st)}）・${n}局</p>`; }
+  h+='<div class="stack">';
+  if(n){
+    h+=`<button class="btn" data-act="play-fit">あなたに合う強さで対局（AI ${LV_NAME[nearestLevel(st.mean)]}）</button>`;
+    h+=`<button class="btn alt" data-act="measure">棋力を測り直す</button>`;
+  } else h+=`<button class="btn" data-act="measure">棋力を測る（3局）</button>`;
+  h+=`<button class="btn alt" data-act="free">強さを選んで対局</button>`;
+  if(n) h+=`<button class="btn alt" data-act="show-result">推定の内訳を見る</button>`;
+  h+='</div><p class="note" style="margin-top:22px">判定はこのツールのAIとの勝敗から計算した目安で、公式の段級位ではありません。メーター下の点はAI 10段階（Lv1〜Lv10）の想定位置です。</p>';
+  $('#v-home').innerHTML=h;
+}
+let priorSel=1;
+const PRIORS=[
+  ['ルールを覚えたばかり','駒の動かし方がわかる程度',8],
+  ['ときどき指す','10級前後。ネット対局や将棋アプリで少し',20],
+  ['ふつうに指せる','3〜5級。囲いや定跡をいくつか知っている',26],
+  ['道場・大会レベル','初段前後。実戦経験が豊富',30]];
+function renderMeasure(){
+  let h=`<h2>棋力を測る</h2><p class="lead">AIと3局指します。結果に応じて相手の強さが自動で変わり、先手・後手は交互です。1局15〜30分ほど。測定中は「待った」できません。</p><div class="field"><h3>いまの棋力は、どれが近いですか？</h3><div class="choices">`;
+  PRIORS.forEach((p,i)=>{ h+=`<button class="choice" data-act="prior" data-i="${i}" aria-pressed="${i===priorSel}">${p[0]}<small>${p[1]}</small></button>`; });
+  h+=`</div></div><div class="stack"><button class="btn" data-act="start-measure">測定を始める</button><button class="btn alt" data-act="home">戻る</button></div>`;
+  $('#v-measure').innerHTML=h;
+}
+let freeLevel=4, freeSide='first';
+function renderFree(){
+  let h=`<h2>強さを選んで対局</h2><div class="field"><h3>AIの強さ</h3><div class="choices">`;
+  for(let i=1;i<=10;i++) h+=`<button class="choice" data-act="level" data-i="${i}" aria-pressed="${i===freeLevel}">Lv${i}　${LV_NAME[i]}くらい</button>`;
+  h+=`</div></div><div class="field"><h3>手番</h3><div class="seg">`;
+  [['first','先手'],['second','後手'],['random','おまかせ']].forEach(([k,t])=>{ h+=`<button class="choice" data-act="side" data-k="${k}" aria-pressed="${freeSide===k}">${t}</button>`; });
+  h+=`</div></div><div class="stack"><button class="btn" data-act="start-free">対局開始</button><button class="btn alt" data-act="home">戻る</button></div><p class="note">自由対局では「待った」が使えます（使った対局は棋力推定に反映されません）。</p>`;
+  $('#v-free').innerHTML=h;
+}
+function renderResult(){
+  const st=stats(); if(!st){ renderHome(); show('home'); return; }
+  const n=R.games.length;
+  let h=`<h2>測定結果</h2><div class="cert"><div class="seal" aria-label="${estLabel(st)}">${[...(topped(st.med)?'初段以上':sealName(st.med))].map(c=>`<span>${c}</span>`).join('')}</div><div class="txt"><p class="big">${estLabel(st)}くらい</p><p>${rangeLabel(st)} の範囲にいる可能性が高い（80%）</p><p class="note">${n}局の結果から推定</p></div></div>`;
+  const bins=new Array(MAXX+1).fill(0); R.post.forEach((v,i)=>{ bins[Math.min(MAXX,Math.round(GRID[i]))]+=v; });
+  const mx=Math.max(...bins), mid=Math.round(st.med);
+  h+='<div class="hist">'+bins.map((v,i)=>`<i class="${i===mid?'mid':(i>=Math.round(st.lo)&&i<=Math.round(st.hi)?'in':'')}" style="height:${Math.max(1,v/mx*100)}%"></i>`).join('')+'</div>';
+  h+=meterHTML(null).replace(/<div class="meter">[\s\S]*?<div class="scale">/,'<div class="meter" style="padding-top:0;margin-top:0"><div class="scale" style="margin-top:6px">');
+  h+='<h3 style="margin-top:22px">対局記録</h3><table><tr><th>#</th><th>相手</th><th>手番</th><th>結果</th></tr>';
+  R.games.forEach((g,i)=>{ h+=`<tr><td>${i+1}</td><td>AI Lv${g.level}（${LV_NAME[g.level]}）</td><td>${g.human===0?'先手':'後手'}</td><td class="${g.res===1?'w':g.res===0?'l':''}">${g.res===1?'勝ち':g.res===0?'負け':'引き分け'}${g.undo?'（待ったあり・集計外）':''}</td></tr>`; });
+  h+='</table><div class="stack">';
+  h+=`<button class="btn" data-act="play-fit">この強さに合うAIと対局（${LV_NAME[nearestLevel(st.mean)]}）</button>`;
+  h+=`<button class="btn alt" data-act="more-measure">もう1局測って精度を上げる</button><button class="btn alt" data-act="home">ホームへ</button></div>`;
+  h+='<p class="note" style="margin-top:18px">推定は目安です。AIの強さの表記は設計上の想定で、実際の道場や他サイトの段級位とはずれることがあります。Lv8以上は思考時間の上限があり、端末が遅いと少し弱くなります。</p>';
+  $('#v-result').innerHTML=h;
+}
+
+/* ---------- modal ---------- */
+function ask(msg,buttons){
+  return new Promise(res=>{
+    const m=$('#modal');
+    m.innerHTML=`<div class="dlg" role="dialog" aria-modal="true"><p>${msg}</p><div class="stack" style="margin-top:0">`+buttons.map((b,i)=>`<button class="btn ${b.alt?'alt':''}" data-i="${i}">${b.t}</button>`).join('')+'</div></div>';
+    m.hidden=false;
+    m.onclick=e=>{ const b=e.target.closest('button'); if(!b) return; m.hidden=true; m.onclick=null; res(buttons[+b.dataset.i].v); };
+    const f=m.querySelector('button'); if(f) f.focus();
+  });
+}
+
+/* ---------- game ---------- */
+let G=null, gid=0, M={n:0,total:3};
+function kifuText(pos,m){
+  const from=m&127,to=(m>>7)&127,pr=(m>>14)&1, side=pos.side;
+  const tr=(to/9)|0, tc=to%9;
+  let t,s=(side?'△':'▲')+FW[9-tc]+RK[tr+1];
+  if(from>80){ t=from-80; s+=NAME[t]+'打'; }
+  else { t=Math.abs(pos.b[from]); const fr=(from/9)|0, fc=from%9; s+=NAME[t]+(pr?'成':'')+'('+(9-fc)+(fr+1)+')'; }
+  return s;
+}
+function startGame(o){
+  G={id:++gid,mode:o.mode,level:o.level,human:o.human,pos:E.initialPos(),hist:[],kifu:[],keys:[],last:null,over:false,thinking:false,undo:false,sel:null,legal:[],result:null,reason:''};
+  G.keys.push(E.key(G.pos)); G.legal=E.legalMoves(G.pos);
+  show('game'); renderGame();
+  if(G.pos.side!==G.human) aiTurn();
+}
+function aiTurn(){
+  G.thinking=true; renderGame();
+  const id=G.id, t0=Date.now();
+  runAI(E.toJSON(G.pos),G.level).then(r=>{
+    setTimeout(()=>{
+      if(!G||G.id!==id||G.over) return;
+      G.thinking=false;
+      if(!r||r.none){ endGame('win','AIの指せる手がありません'); return; }
+      play(r.move);
+    },Math.max(0,450-(Date.now()-t0)));
+  });
+}
+function play(m){
+  G.kifu.push(kifuText(G.pos,m));
+  G.hist.push(E.clonePos(G.pos));
+  const from=m&127,to=(m>>7)&127;
+  E.apply(G.pos,m);
+  G.last={from:from>80?-1:from,to}; G.sel=null;
+  const k=E.key(G.pos); G.keys.push(k);
+  if(G.keys.filter(x=>x===k).length>=4){ endGame('draw','千日手'); return; }
+  G.legal=E.legalMoves(G.pos);
+  if(!G.legal.length){ endGame(1-G.pos.side===G.human?'win':'loss','詰み'); return; }
+  if(G.kifu.length>=300){ endGame('draw','300手に達したため引き分け'); return; }
+  renderGame();
+  if(G.pos.side!==G.human) aiTurn();
+}
+function endGame(result,reason){
+  G.over=true; G.thinking=false; G.result=result; G.reason=reason; G.sel=null;
+  const res=result==='win'?1:result==='loss'?0:0.5;
+  R.games.push({level:G.level,human:G.human,res,undo:G.undo});
+  if(!G.undo){ updateRating(LV_X[G.level],res); }
+  else if(!R.post) ensureRating();
+  if(G.mode==='measure') M.n++;
+  renderGame();
+}
+function pieceHTML(p,cls){
+  const t=Math.abs(p), own=(p>0?0:1)===G.human;
+  const g=t===8?(p>0?'玉':'王'):GL[t];
+  return `<span class="pc ${own?'':'opp'} ${t>=9&&t!==8?'pro':''} ${cls||''}">${g}</span>`;
+}
+function handHTML(side){
+  const mine=side===G.human; let h='';
+  [7,6,5,4,3,2,1].forEach(t=>{
+    const c=G.pos.h[side*8+t]; if(!c) return;
+    const sel=mine&&G.sel&&G.sel.drop===t;
+    h+=`<button class="hp ${mine?'':'opp'} ${sel?'sel':''}" ${mine?`data-act="hand" data-t="${t}"`:'disabled tabindex="-1"'} aria-label="持ち駒 ${GL[t]} ${c}枚">${pieceHTML((side===0?1:-1)*t)}${c>1?`<span class="cnt">${c}</span>`:''}</button>`;
+  });
+  return h||'<span class="empty">持ち駒なし</span>';
+}
+function selMoves(){
+  if(!G.sel) return [];
+  return G.legal.filter(m=>G.sel.drop?(m&127)===80+G.sel.drop:(m&127)===G.sel.sq);
+}
+function renderGame(){
+  const flip=G.human===1, pos=G.pos, opp=1-G.human;
+  const dests=new Set(selMoves().map(m=>(m>>7)&127));
+  const chk=!G.over&&E.inCheck(pos,pos.side)?pos.kp[pos.side]:-1;
+  let cells='';
+  for(let dr=0;dr<9;dr++) for(let dc=0;dc<9;dc++){
+    const r=flip?8-dr:dr, c=flip?8-dc:dc, sq=r*9+c, p=pos.b[sq];
+    const cls=['cell'];
+    if((dr===2||dr===5)&&(dc===2||dc===5)) cls.push('star');
+    if(G.last&&(G.last.to===sq||G.last.from===sq)) cls.push('last');
+    if(G.sel&&G.sel.sq===sq) cls.push('sel');
+    if(chk===sq) cls.push('chk');
+    if(dests.has(sq)){ cls.push('dest'); if(p) cls.push('cap'); }
+    cells+=`<button class="${cls.join(' ')}" data-act="cell" data-sq="${sq}" aria-label="${9-c}${KN[r+1]}${p?' '+GL[Math.abs(p)]:''}">${p?pieceHTML(p):''}</button>`;
+  }
+  let files='',ranks='';
+  for(let i=0;i<9;i++){ const c=flip?8-i:i, r=flip?8-i:i; files+=`<span>${FW[9-c]}</span>`; ranks+=`<span>${KN[r+1]}</span>`; }
+  const sideName=s=>s===0?'先手':'後手';
+  let status='',sub='';
+  if(G.over){ status=''; }
+  else if(G.thinking) status='<span class="think">AIが考えています</span>';
+  else status=(E.inCheck(pos,G.human)?'<span class="main warn">王手されています。</span> ':'')+'あなたの番です';
+  if(G.kifu.length) sub='直前の手　'+G.kifu[G.kifu.length-1]+'　（'+G.kifu.length+'手目）';
+  const title=G.mode==='measure'?`測定 ${M.n+1}/${M.total}局目`:'自由対局';
+  let h=`<div class="gwrap"><div class="pbar"><span><b>AI Lv${G.level}</b>（${LV_NAME[G.level]}くらい）・${sideName(opp)}</span><span class="note">${title}</span></div>`;
+  h+=`<div class="hand">${handHTML(opp)}</div>`;
+  h+=`<div class="bd"><div class="files">${files}</div><div class="board" id="board">${cells}</div><div class="ranks">${ranks}</div></div>`;
+  h+=`<div class="hand">${handHTML(G.human)}</div>`;
+  h+=`<div class="pbar"><span><b>あなた</b>・${sideName(G.human)}</span></div>`;
+  h+=`<div class="status"><div class="main">${status}</div><div class="sub">${sub}</div></div>`;
+  if(G.over){
+    const w=G.result==='win', d=G.result==='draw';
+    h+=`<div class="rescard ${w?'win':''}"><h2>${d?'引き分け':w?'あなたの勝ち':'あなたの負け'}</h2><p>${G.reason}</p>`;
+    if(G.mode==='measure'){
+      const st=stats();
+      h+=`<p class="est">ここまでの推定：<b>${estLabel(st)}</b>くらい（${rangeLabel(st)}）</p><div class="stack" style="margin-top:12px">`;
+      if(M.n>=M.total) h+=`<button class="btn" data-act="show-result">測定結果を見る</button>`;
+      else h+=`<button class="btn" data-act="next-measure">次の対局へ（AI ${LV_NAME[nearestLevel(st.mean)]}）</button><button class="btn alt" data-act="show-result">ここまでの結果を見る</button>`;
+      h+='</div>';
+    } else {
+      h+=`<div class="stack" style="margin-top:12px"><button class="btn" data-act="again">同じ強さでもう一局</button><button class="btn alt" data-act="free">強さを変える</button><button class="btn alt" data-act="show-result">推定棋力を見る</button></div>`;
+    }
+    h+=`<p style="margin-top:12px"><button class="btn alt small" data-act="copy">棋譜をコピー</button> <button class="btn alt small" data-act="home">ホームへ</button></p></div>`;
+  } else {
+    h+=`<div class="ctl"><button class="btn alt" data-act="resign">投了</button>`;
+    if(G.mode==='free') h+=`<button class="btn alt" data-act="undo" ${(G.thinking||G.hist.length<2||pos.side!==G.human)?'disabled':''}>待った</button>`;
+    h+=`<button class="btn alt" data-act="quit">中断</button></div>`;
+  }
+  h+='</div>';
+  $('#v-game').innerHTML=h;
+}
+async function onCell(sq){
+  if(!G||G.over||G.thinking||G.pos.side!==G.human) return;
+  const p=G.pos.b[sq], own=p!==0&&(p>0?0:1)===G.human;
+  if(G.sel){
+    const ms=selMoves().filter(m=>((m>>7)&127)===sq);
+    if(ms.length){
+      if(ms.length===2){
+        const pm=ms.find(m=>(m>>14)&1), nm=ms.find(m=>!((m>>14)&1));
+        const pt=Math.abs(G.pos.b[pm&127]);
+        const v=await ask('成りますか？',[{t:`成る（${NAME[E.PROMO_OF[pt]]}）`,v:pm},{t:'成らない',v:nm,alt:true}]);
+        play(v);
+      } else play(ms[0]);
+      return;
+    }
+  }
+  G.sel=own?{sq}:null; renderGame();
+}
+function nextHuman(){ return M.n%2===0?0:1; }
+
+/* ---------- actions ---------- */
+document.addEventListener('click',async e=>{
+  const b=e.target.closest('[data-act]'); if(!b) return;
+  const a=b.dataset.act;
+  switch(a){
+    case 'cell': onCell(+b.dataset.sq); break;
+    case 'hand':
+      if(!G||G.over||G.thinking||G.pos.side!==G.human) break;
+      G.sel=(G.sel&&G.sel.drop===+b.dataset.t)?null:{drop:+b.dataset.t}; renderGame(); break;
+    case 'home': if(G&&!G.over&&!$('#v-game').hidden){ if(!(await ask('対局を中断しますか？（結果は記録されません）',[{t:'中断してホームへ',v:true},{t:'続ける',v:false,alt:true}]))) break; } G=null; renderHome(); show('home'); break;
+    case 'quit': if(await ask('対局を中断しますか？（結果は記録されません）',[{t:'中断してホームへ',v:true},{t:'続ける',v:false,alt:true}])){ G=null; renderHome(); show('home'); } break;
+    case 'measure': renderMeasure(); show('measure'); break;
+    case 'prior': priorSel=+b.dataset.i; renderMeasure(); break;
+    case 'start-measure': resetRating(PRIORS[priorSel][2],6); M={n:0,total:3}; startGame({mode:'measure',level:nearestLevel(stats().mean),human:0}); break;
+    case 'next-measure': startGame({mode:'measure',level:nearestLevel(stats().mean),human:nextHuman()}); break;
+    case 'more-measure': M={n:M.n,total:M.n+1}; startGame({mode:'measure',level:nearestLevel(stats().mean),human:nextHuman()}); break;
+    case 'free': renderFree(); show('free'); break;
+    case 'level': freeLevel=+b.dataset.i; renderFree(); break;
+    case 'side': freeSide=b.dataset.k; renderFree(); break;
+    case 'start-free': startGame({mode:'free',level:freeLevel,human:freeSide==='first'?0:freeSide==='second'?1:Math.round(Math.random())}); break;
+    case 'again': startGame({mode:'free',level:G.level,human:1-G.human}); break;
+    case 'play-fit': { const st=stats(); freeLevel=nearestLevel(st.mean); startGame({mode:'free',level:freeLevel,human:Math.round(Math.random())}); break; }
+    case 'show-result': renderResult(); show('result'); break;
+    case 'resign': if(await ask('投了しますか？',[{t:'投了する',v:true},{t:'続ける',v:false,alt:true}])){ if(G&&!G.over){ endGame('loss','あなたの投了'); } } break;
+    case 'undo':
+      if(G.thinking||G.over||G.hist.length<2||G.pos.side!==G.human) break;
+      G.pos=G.hist[G.hist.length-2]; G.hist.length-=2; G.kifu.length-=2; G.keys.length-=2;
+      G.last=null; G.sel=null; G.undo=true; G.legal=E.legalMoves(G.pos); renderGame(); break;
+    case 'copy': {
+      const txt=G.kifu.map((k,i)=>(i+1)+' '+k).join('\n');
+      try{ await navigator.clipboard.writeText(txt); b.textContent='コピーしました'; }catch(err){ b.textContent='コピーできませんでした'; }
+      break; }
+  }
+});
+$('#brand').addEventListener('click',async()=>{
+  if(G&&!G.over&&!$('#v-game').hidden){ if(!(await ask('対局を中断しますか？（結果は記録されません）',[{t:'中断してホームへ',v:true},{t:'続ける',v:false,alt:true}]))) return; }
+  G=null; renderHome(); show('home');
+});
+renderHome(); show('home');
+})();
+
+</script>
+</body>
+</html>
